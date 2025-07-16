@@ -1,0 +1,8 @@
+[build]
+  publish = "/" # Explicitly tell Netlify to publish from the root
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
