@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuro-Sonic Navigator</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter for consistent typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- React and ReactDOM CDNs for React functionality -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX transformation directly in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        /* Custom styles for the body and scrollbars */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #a78bfa; /* Purple-400 */
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block; /* To align with text */
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Custom scrollbar for textareas and select elements */
+        textarea, select {
+            scrollbar-width: thin; /* Firefox */
+            scrollbar-color: #8b5cf6 #1f2937; /* thumb and track color */
+        }
+        textarea::-webkit-scrollbar, select::-webkit-scrollbar {
+            width: 8px;
+        }
+        textarea::-webkit-scrollbar-track, select::-webkit-scrollbar-track {
+            background: #1f2937; /* Dark gray for track */
+            border-radius: 10px;
+        }
+        textarea::-webkit-scrollbar-thumb, select::-webkit-scrollbar-thumb {
+            background-color: #8b5cf6; /* Purple for thumb */
+            border-radius: 10px;
+            border: 2px solid #1f2937;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-900 via-purple-900 to-blue-900 min-h-screen flex items-center justify-center p-6">
+    <!-- This is the root div where the React application will be mounted -->
+    <div id="root" class="w-full max-w-3xl">
+        <!-- React app will be mounted here -->
+    </div>
+
+    <!-- Script tag for the React application. type="text/babel" is crucial for in-browser JSX compilation -->
+    <script type="text/babel">
+        // Destructuring React hooks for easier use
+        const { useState, useEffect } = React;
+        const { createRoot } = ReactDOM;
+
+        // Main App Component definition
+        const App = () => {
+            // State variables to hold user input and LLM responses
+            const [situationInput, setSituationInput] = useState('');
+            const [selectedSector, setSelectedSector] = useState('General'); // State for sector selection
+            const [unseenRhythmResponse, setUnseenRhythmResponse] = useState('');
+            const [antifragileActionResponse, setAntifragileActionResponse] = useState('');
+            const [clarityQuestionResponse, setClarityQuestionResponse] = useState('');
+            const [lifeIntegrationSummary, setLifeIntegrationSummary] = useState('');
+
+            // Loading state variables for each LLM call to show spinners
+            const [loadingUnseenRhythm, setLoadingUnseenRhythm] = useState(false);
+            const [loadingAntifragileAction, setLoadingAntifragileAction] = useState(false);
+            const [loadingClarityQuestion, setLoadingClarityQuestion] = useState(false);
+            const [loadingLifeIntegration, setLoadingLifeIntegration] = useState(false);
+
+            // State for handling input validation errors (e.g., if input is empty)
+            const [inputError, setInputError] = useState('');
+
+            // Function to call the Netlify Function (proxy)
+            const callGeminiLLM = async (prompt, setter, setLoading) => {
+                setLoading(true); // Set loading state to true
+                setter(''); // Clear any previous response
+
+                // The model name is now passed to the proxy function
+                const modelToUse = "gemini-2.0-flash"; // Specify the Gemini model to use
+
+                try {
+                    // Make the API call to your Netlify Function endpoint
+                    // This endpoint will then securely call the Gemini API using the hidden API key
+                    const response = await fetch('/.netlify/functions/neurosonic-proxy', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        // Send the prompt and model name in the request body
+                        body: JSON.stringify({ prompt: prompt, model: modelToUse })
+                    });
+
+                    // Check for HTTP errors from the Netlify Function itself
+                    if (!response.ok) {
+                        let errorDetails = `Proxy Error: ${response.status} ${response.statusText}`;
+                        // Attempt to parse error message from proxy's response body if available
+                        try {
+                            const errorData = await response.json();
+                            errorDetails = errorData?.error || errorDetails; // Netlify Function sends its error in 'error' field
+                        } catch (e) {
+                            console.error("Could not parse proxy error response JSON", e);
+                        }
+                        throw new Error(errorDetails); // Throw an error to be caught by the catch block
+                    }
+
+                    const result = await response.json(); // Parse the JSON response from the proxy
+
+                    // Check if the response structure from Gemini (via proxy) is as expected
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        const text = result.candidates[0].content.parts[0].text;
+                        setter(text); // Update the state with the received text
+                    } else {
+                        // Handle cases where response is successful but content is missing (e.g., safety block from Gemini)
+                        const reason = result.promptFeedback?.blockReason || result.error?.message || 'Unexpected response structure or content blocked due to safety settings.';
+                        setter(`Error: ${reason}. Please try modifying your input.`);
+                        console.error("Unexpected LLM response structure (via proxy):", result);
+                    }
+                } catch (error) {
+                    // Catch any errors during the fetch to the proxy or processing
+                    setter(`Error: ${error.message}. Please check your network connection or Netlify Function logs.`);
+                    console.error("Error calling Neuro-Sonic proxy function:", error);
+                } finally {
+                    setLoading(false); // Always set loading state to false
+                }
+            };
+
+            // Handler for the "Unleash Neuro-Sonic Insights" button
+            const handleGenerateAll = async () => {
+                // Input validation: ensure the situation input is not empty
+                if (situationInput.trim() === "") {
+                    setInputError("Please describe a life situation or challenge.");
+                    return;
+                }
+                setInputError(''); // Clear any previous input error
+
+                // Construct sector context for the prompts
+                const sectorContext = selectedSector !== 'General' ? ` (in the context of the ${selectedSector} sector)` : '';
+
+                // Generate Unseen Rhythm Analysis
+                const unseenRhythmPrompt = `As a Neuro-Sonic expert, analyze the following life situation/challenge${sectorContext} to identify potential "unseen rhythms" or underlying patterns, similar to auditory morphodynamics: "${situationInput}". Focus on subtle dynamics and emergent structures.`;
+                callGeminiLLM(unseenRhythmPrompt, setUnseenRhythmResponse, setLoadingUnseenRhythm);
+
+                // Generate Antifragile Action Suggestion
+                const antifragileActionPrompt = `As a Neuro-Sonic expert in antifragility, suggest an antifragile action or mindset shift for the following life situation/challenge${sectorContext}: "${situationInput}". Focus on how to gain from instability, not just survive it.`;
+                callGeminiLLM(antifragileActionPrompt, setAntifragileActionResponse, setLoadingAntifragileAction);
+
+                // Generate Clarity Question
+                const clarityQuestionPrompt = `As Neuro-Sonic, generate one thought-provoking question that helps achieve extreme clarity on the following life situation/challenge${sectorContext}: "${situationInput}". The question should help cut through information noise and focus on what truly matters.`;
+                callGeminiLLM(clarityQuestionPrompt, setClarityQuestionResponse, setLoadingClarityQuestion);
+
+                // Generate Life Integration Summary
+                const lifeIntegrationPrompt = `As a Neuro-Sonic expert, provide a summary of how the following life situation/challenge${sectorContext}, viewed through the Neuro-Sonic lens (focusing on unseen rhythms, antifragility, and clarity), integrates into a broader understanding of personal growth and 'super agency'. Emphasize relevance for the ${selectedSector} sector if applicable: "${situationInput}".`;
+                callGeminiLLM(lifeIntegrationPrompt, setLifeIntegrationSummary, setLoadingLifeIntegration);
+            };
+
+            // Spinner Component to show while loading
+            const Spinner = ({ message = "Generating..." }) => (
+                <div className="flex items-center justify-center text-purple-300">
+                    <div className="loading-spinner"></div>
+                    <span>{message}</span>
+                </div>
+            );
+
+            // The main JSX structure of the React application
+            return (
+                <div className="bg-gray-800 bg-opacity-90 rounded-xl shadow-2xl p-8 md:p-12 w-full border border-purple-700">
+                    {/* Main Title */}
+                    <h1 className="text-4xl md:text-5xl font-extrabold text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-300">
+                        Neuro-Sonic Navigator
+                    </h1>
+                    {/* Subtitle */}
+                    <p className="text-center text-lg md:text-xl mb-10 text-purple-200">
+                        Life Integration: Tune into the Unseen Rhythms of Your Journey
+                    </p>
+
+                    {/* Input Section */}
+                    <div className="mb-8 p-6 bg-gray-700 bg-opacity-70 rounded-lg border border-indigo-600">
+                        <label htmlFor="situationInput" className="block text-purple-300 text-lg font-semibold mb-3">
+                            Describe Your Life Situation or Challenge:
+                        </label>
+                        <textarea
+                            id="situationInput"
+                            className="w-full p-4 rounded-lg bg-gray-900 text-gray-100 border border-indigo-500 focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all duration-300 ease-in-out"
+                            rows="5"
+                            placeholder="E.g., 'Feeling overwhelmed by career uncertainty and personal changes', 'Navigating a complex decision with conflicting advice', 'Seeking deeper meaning in daily routines'."
+                            value={situationInput}
+                            onChange={(e) => setSituationInput(e.target.value)}
+                        ></textarea>
+                        {/* Display input error message if present */}
+                        {inputError && (
+                            <p className="text-red-400 text-sm mt-2">{inputError}</p>
+                        )}
+
+                        {/* Sector Selection Dropdown */}
+                        <label htmlFor="sectorSelect" className="block text-purple-300 text-lg font-semibold mb-3 mt-6">
+                            Select Sector (Optional for tailored insights):
+                        </label>
+                        <select
+                            id="sectorSelect"
+                            className="w-full p-4 rounded-lg bg-gray-900 text-gray-100 border border-indigo-500 focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all duration-300 ease-in-out"
+                            value={selectedSector}
+                            onChange={(e) => setSelectedSector(e.target.value)}
+                        >
+                            <option value="General">General / Personal Growth</option>
+                            <option value="Finance">Finance / Investment</option>
+                            <option value="Technology">Technology / Software Development</option>
+                            <option value="Healthcare">Healthcare / Pharma</option>
+                            <option value="Leadership">Leadership / Organizational Development</option>
+                            <option value="Marketing">Marketing / Branding</option>
+                            <option value="Supply Chain">Supply Chain / Logistics</option>
+                            <option value="Creative Arts">Creative Arts / Design</option>
+                            <option value="Education">Education / Learning</option>
+                            {/* Add more sectors as needed based on your partnership offers */}
+                        </select>
+
+                        {/* Generate Button */}
+                        <button
+                            onClick={handleGenerateAll}
+                            className="w-full mt-6 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform transition-all duration-300 ease-in-out hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-75"
+                        >
+                            Unleash Neuro-Sonic Insights
+                        </button>
+                    </div>
+
+                    {/* Unseen Rhythm Analysis Section */}
+                    <div className="mb-6 p-6 bg-gray-700 bg-opacity-70 rounded-lg border border-blue-600">
+                        <h2 className="text-2xl font-bold mb-4 text-blue-300">✨ Unseen Rhythm Analysis</h2>
+                        {loadingUnseenRhythm ? <Spinner /> : (
+                            <p className="text-blue-100 whitespace-pre-wrap">{unseenRhythmResponse || "Insights into the subtle patterns and emergent structures of your situation will appear here."}</p>
+                        )}
+                    </div>
+
+                    {/* Antifragile Action Suggestion Section */}
+                    <div className="mb-6 p-6 bg-gray-700 bg-opacity-70 rounded-lg border border-green-600">
+                        <h2 className="text-2xl font-bold mb-4 text-green-300">🌱 Antifragile Action Suggestion</h2>
+                        {loadingAntifragileAction ? <Spinner /> : (
+                            <p className="text-green-100 whitespace-pre-wrap">{antifragileActionResponse || "Suggestions on how to gain from instability will be generated here."}</p>
+                        )}
+                    </div>
+
+                    {/* Clarity Question Generation Section */}
+                    <div className="mb-6 p-6 bg-gray-700 bg-opacity-70 rounded-lg border border-yellow-600">
+                        <h2 className="text-2xl font-bold mb-4 text-yellow-300">💡 Clarity Question</h2>
+                        {loadingClarityQuestion ? <Spinner /> : (
+                            <p className="text-yellow-100 whitespace-pre-wrap">{clarityQuestionResponse || "A thought-provoking question to cut through the noise and find clarity."}</p>
+                        )}
+                    </div>
+
+                    {/* Life Integration Summary Section */}
+                    <div className="mb-6 p-6 bg-gray-700 bg-opacity-70 rounded-lg border border-purple-600">
+                        <h2 className="text-2xl font-bold mb-4 text-purple-300">🌟 Life Integration Summary</h2>
+                        {loadingLifeIntegration ? <Spinner /> : (
+                            <p className="text-purple-100 whitespace-pre-wrap">{lifeIntegrationSummary || "A summary of how your situation integrates into your journey towards 'super agency'."}</p>
+                        )}
+                    </div>
+
+                    {/* Footer */}
+                    <p className="text-center text-sm md:text-base mt-10 text-gray-400">
+                        Powered by Neuro-Sonic principles and the Gemini LLM.
+                    </p>
+                </div>
+            );
+        };
+
+        // Mount the React App to the 'root' div in the HTML body
+        const container = document.getElementById('root');
+        const root = createRoot(container);
+        root.render(<App />);
+    </script>
+</body>
+</html>
