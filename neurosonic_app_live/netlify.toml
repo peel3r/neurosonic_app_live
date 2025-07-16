@@ -3,7 +3,3 @@
       command = "npm install" # THIS LINE IS NEW: Forces Netlify to run a build command
       functions = "netlify/functions" # Tells Netlify where your functions will be located
 
-    [[redirects]]
-      from = "/.netlify/functions/*"
-      to = "/.netlify/functions/:splat"
-      status = 200
